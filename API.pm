@@ -5,15 +5,15 @@
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.55
-# Date: 23 Mar 2008
+# Version: 0.56
+# Date: 03 Oct 2008
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
 #  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
 #
-# $Id: API.pm 77 2008-03-23 10:25:43Z Cosimo $
+# $Id: API.pm 112 2008-10-02 22:20:25Z Cosimo $
 #
 #######################################################################
 
@@ -41,7 +41,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.55';
+$VERSION = '0.56';
 
 #### some package-global hash to 
 #### keep track of the imported 
@@ -440,12 +440,18 @@ You need to pass 2 parameters:
 =over 4
 
 =item 1.
+
 The name of the library from which you want to import the function.
 
 =item 2.
+
 The C prototype of the function.
 
 =back
+
+When calling a function imported with a prototype, if you pass an
+undefined Perl scalar to one of its arguments, it will be
+automatically turned into a C C<NULL> value.
 
 See L<Win32::API::Type> for a list of the known parameter types and
 L<Win32::API::Struct> for information on how to define a structure.
@@ -491,6 +497,7 @@ documentation, if you own one.
 The first parameter is the name of the library file that 
 exports this function; our function resides in the F<KERNEL32.DLL>
 system file.
+
 When specifying this name as parameter, the F<.DLL> extension
 is implicit, and if no path is given, the file is searched through
 a couple of directories, including: 
