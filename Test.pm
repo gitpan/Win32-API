@@ -3,7 +3,7 @@
 # 
 # Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id$
+# $Id: Test.pm 438 2008-10-02 22:51:55Z cosimo.streppone $
 
 package Win32::API::Test;
 
@@ -41,7 +41,7 @@ sub compiler_version_from_shell () {
 	{
 		my @ver = `$cc 2>&1`;            # Interesting output in STDERR
 		$ver = join('',@ver);
-		print 'VER:'.$ver.':'."\n";
+		#print 'VER:'.$ver.':'."\n";
 		if($ver =~ /Version (\d[\d\.]+)/ms )
 		{
 			$ver = $1;

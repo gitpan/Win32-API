@@ -4,7 +4,7 @@
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-    # $Id: API.xs 110 2008-10-02 22:16:27Z Cosimo $
+    # $Id: API.xs 438 2008-10-02 22:51:55Z cosimo.streppone $
  */
 
 #define  WIN32_LEAN_AND_MEAN

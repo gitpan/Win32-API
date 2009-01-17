@@ -1,6 +1,6 @@
 ##!perl -w
 
-# $Id: test.t,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id: 01_Struct.t 452 2009-01-17 16:16:08Z cosimo.streppone $
 
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
@@ -67,5 +67,4 @@ ok(
 	$simple_struct{c} eq 'TEST',
 	'tied interface works'
 );
-
 

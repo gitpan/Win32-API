@@ -8,7 +8,7 @@
     # TODO: This does not work yet with the 64bit gcc cygwin-thread-multi-64int 
     #       (cygwin default)
     #
-    # $Id: Callback.xs 109 2008-10-02 22:09:43Z Cosimo $
+    # $Id: Callback.xs 451 2009-01-17 16:06:43Z cosimo.streppone $
  */
 
 #define  WIN32_LEAN_AND_MEAN
@@ -504,17 +504,18 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 		distance++;
 	}
 
-	section_START 	= checkpoint_PUSHI;
-	section_PUSHI	= checkpoint_PUSHL	- checkpoint_PUSHI;
-	section_PUSHL	= checkpoint_PUSHP	- checkpoint_PUSHL;
-	section_PUSHP	= checkpoint_PUSHS	- checkpoint_PUSHP;
-	section_PUSHS	= checkpoint_END 	- checkpoint_PUSHS;
-	section_END		= checkpoint_DONE	- checkpoint_END;
+	section_START = checkpoint_PUSHI;
+	section_PUSHI = checkpoint_PUSHL	- checkpoint_PUSHI;
+	section_PUSHL = checkpoint_PUSHP	- checkpoint_PUSHL;
+	section_PUSHP = checkpoint_PUSHS	- checkpoint_PUSHP;
+	section_PUSHS = checkpoint_END 	- checkpoint_PUSHS;
+	section_END   = checkpoint_DONE	- checkpoint_END;
 
-	toalloc = section_START;
-
+	toalloc  = section_START;
 	toalloc += section_END;
-	toalloc += 3; // we'll need 3 extra bytes for the callback epilogue
+
+	/* We'll need 4 extra bytes for the callback epilogue */
+	toalloc += 4;
 
 #ifdef WIN32_API_DEBUG
 	printf("(C)CallbackCreate: toalloc=%d\n", toalloc);

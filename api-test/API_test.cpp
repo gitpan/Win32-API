@@ -1,5 +1,7 @@
+//
 // API_test.cpp : Defines the entry point for the DLL application.
 //
+// $Id: API_test.cpp 455 2009-01-17 17:18:29Z cosimo.streppone $
 
 #pragma pack(1)
 
@@ -36,6 +38,7 @@ API_TEST_API int __stdcall sum_integers_ref(int a, int b, int *c) {
 	*c = a + b;
 	return 1;
 }
+
 API_TEST_API double __stdcall sum_doubles(double a, double b) {
 	return a + b;
 }
@@ -94,8 +97,6 @@ API_TEST_API void __stdcall dump_struct(const char *name, simple_struct *x) {
 }
 
 API_TEST_API int __stdcall mangle_simple_struct(simple_struct *x) {
-	unsigned int i;
-	unsigned int j;
 	char *tmp;
 
 	simple_struct mine;
@@ -129,4 +130,9 @@ API_TEST_API int __stdcall do_callback(callback_func function, int value) {
 	int r = function(value);
 	printf("do_callback: returning %ld\n", r); 
 	return r;
+}
+
+/* cdecl functions */
+API_TEST_API int __cdecl c_sum_integers(int a, int b) {
+	return a + b;
 }

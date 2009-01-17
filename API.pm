@@ -11,7 +11,7 @@
 # Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
 #  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
 #
-# $Id: API.pm 130 2008-10-16 20:29:56Z Cosimo $
+# $Id: API.pm 458 2009-01-17 17:27:43Z cosimo.streppone $
 #
 #######################################################################
 
@@ -39,7 +39,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.57';
+$VERSION = '0.58';
 
 #### some package-global hash to 
 #### keep track of the imported 

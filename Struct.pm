@@ -10,7 +10,7 @@ package Win32::API::Struct;
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Struct.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id: Struct.pm 438 2008-10-02 22:51:55Z cosimo.streppone $
 #######################################################################
 
 $VERSION = '0.50';

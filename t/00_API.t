@@ -1,14 +1,14 @@
 #!perl -w
 
-# $Id: test.t,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id: 00_API.t 453 2009-01-17 17:06:10Z cosimo.streppone $
 
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
 
 use strict;
-use Config; # ?not used
+#use Config; # ?not used
 use File::Spec;
-use Test::More; plan tests => 24;
+use Test::More; plan tests => 25;
 use vars qw($function $result $test_dll);
 
 use_ok('Win32::API');
@@ -35,17 +35,15 @@ SKIP: {
         skip('because GetCurrentProcessId() not available on non-WinNT platforms', 3);
     }
 
-    #### Simple test, from kernel32
+    # Simple test, from kernel32
     $function = new Win32::API("kernel32", "GetCurrentProcessId", "", "N");
     ok(
         defined($function),
         'GetCurrentProcessId() function found'
     );
 
-    #diag('$^E=', $^E);
     $result = $function->Call();
 
-    diag('GetCurrentProcessId()=', $result, ' $$=', $$);
     if ($cygwin)
     {
         $result = Cygwin::winpid_to_pid($result);
@@ -53,13 +51,11 @@ SKIP: {
     }
     ok($result == $$, 'GetCurrentProcessId() result ok');
 
-    #### Same as above, with prototype
-    diag('Now the same test, with prototype');
+    # Same as above, with prototype
     $function = new Win32::API("kernel32", "DWORD GetCurrentProcessId(  )");
-    diag('$^E=', $^E);
+    #diag("$function->{procname} \$^E=", $^E);
     $result = $function->Call();
-    
-    diag('GetCurrentProcessId()=', $result, ' $$=', $$);
+   
     if ($cygwin)
     {
         $result = Cygwin::winpid_to_pid($result);
@@ -67,13 +63,13 @@ SKIP: {
     }
     ok($result == $$, 'GetCurrentProcessId() result ok');
 
-    #### Same as above, with Import
-    diag('Now the same test, with Import');
-    ok(Win32::API->Import("kernel32", "DWORD GetCurrentProcessId(  )"), 'Import of GetCurrentProcessId() function from kernel32.dll');
-    diag('$^E=', $^E);
+    # Same as above, with Import
+    ok(
+        Win32::API->Import("kernel32", "DWORD GetCurrentProcessId(  )"),
+        'Import of GetCurrentProcessId() function from kernel32.dll'
+    );
     $result = GetCurrentProcessId();
 
-    diag('GetCurrentProcessId()=', $result, ' $$=', $$);
     if ($cygwin)
     {
         $result = Cygwin::winpid_to_pid($result);
@@ -85,103 +81,125 @@ SKIP: {
 
 #### tests from our own DLL
 
-#### sum 2 integers
+# Sum 2 integers
 $function = new Win32::API($test_dll, 'int sum_integers(int a, int b)');
 ok(defined($function), 'sum_integers() function defined');
-diag('$^E=', $^E);
+#diag("$function->{procname} \$^E=", $^E);
 is(
     $function->Call(2, 3), 5,
     'function call with integer arguments and return value'
 );
 
-#### same as above, with a pointer
+# Same as above, with a pointer
 $function = new Win32::API($test_dll, 'int sum_integers_ref(int a, int b, int* c)');
 ok(defined($function), 'sum_integers_ref() function defined');
-diag('$^E=', $^E);
+#diag("$function->{procname} \$^E=", $^E);
 $result = 0;
 is(
     $function->Call(2, 3, $result), 1,
-    'sum_integers_ref() call works'
+    'sum_integers_ref() returns the expected value'
+);
+is(
+    unpack('C', $result), 5,
+    'sum_integers_ref() correctly modifies its ref argument'
 );
 
-#### sum 2 doubles
+# Sum 2 doubles
 SKIP: {
-    skip('because function call with doubles segfaults even with msvc6', 2);
+
+    # Now with VC6 this works, please check with others
+    skip('because function call with double as return type isn\'t tested', 2);
+
     $function = new Win32::API($test_dll, 'double sum_doubles(double a, double b)');
     ok(defined($function), 'API_test.dll sum_doubles function defined');
-    diag($^E);
+    #diag("$function->{procname} \$^E=",$^E);
     ok(
         $function->Call(2.5, 3.2) == 5.7,
         'function call with double arguments'
     );
 }
 
-#### same as above, with a pointer
+# Same as above, with a pointer
 $function = new Win32::API($test_dll, 'int sum_doubles_ref(double a, double b, double* c)');
 ok(defined($function), 'sum_doubles_ref() function defined');
-diag('$^E=', $^E);
-$result = 0.0;
-is($function->Call(2.5, 3.2, $result), 1, 'sum_doubles_ref() call works');
+#diag("$function->{procname} \$^E=", $^E);
+$result = 1.0;
+is(
+    $function->Call(2.5, 3.2, $result), 1,
+    'sum_doubles_ref() call works'
+);
 
-#### sum 2 floats
+# Sum 2 floats
 $function = new Win32::API($test_dll, 'float sum_floats(float a, float b)');
 ok(defined($function), 'sum_floats() function defined');
-diag('$^E=', $^E);
-
-# here it was $f->Call() eq "5.70"
+#diag("$function->{procname} \$^E=", $^E);
 SKIP: {
+    # Now its works with MSVC6, please check others
     skip('because function call with floats segfaults', 1);
-    ok($function->Call(2.5, 3.2)==5.70, 'sum_floats() result correct');
+
+    # Never ever compare reals with '=='
+    ok(
+        abs($function->Call(2.5, 3.2) - 5.70) < 0.0005,
+       'sum_floats() result correct'
+    );
 }
 
-#### same as above, with a pointer
-$function = new Win32::API($test_dll, 'int sum_floats_ref(float a, float b, float* c)');
+# Same as above, with a pointer
+$function = new Win32::API($test_dll, 'int sum_floats_ref(float* a, float* b, float* c)');
 ok(defined($function), 'sum_floats_ref() function defined');
-diag('$^E=', $^E);
+#diag("$function->{procname} \$^E=", $^E);
 $result = 0.0;
-is($function->Call(2.5, 3.2, $result), 1, 'sum_floats_ref() call works');
+is(
+    $function->Call(2.5, 3.2, $result), 1,
+    'sum_floats_ref() returns the expected value (1)'
+);
+#ok(defined $result, 'sum_floats_ref() call works');
 
-#### find a char in a string
+# Find a char in a string
 $function = new Win32::API($test_dll, 'char* find_char(char* string, char ch)');
 ok(defined($function), 'find_char() function defined');
-diag('$^E=', $^E);
-my $string = "japh";
-my $char = "a";
-is($function->Call($string, $char), 'aph', 'find_char() function call works');
+#diag("$function->{procname} \$^E=", $^E);
+my $string = 'japh';
+my $char = 'a';
+is(
+    $function->Call($string, $char), 'aph',
+    'find_char() function call works'
+);
 
 __END__
 
 /* cdecl tests */
 
+# Sum integers and double via _cdecl function
+$function = new Win32::API($test_dll, 'int __cdecl c_sum_integers(int a, int b)');
+ok(defined($function), "cdecl c_sum_integers() function defined");
+is($function->Call(2, 3), 5, 'cdecl sum_integers() returns expected value');
+
 #### 12: sum integers and double via _cdecl function
 $function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int(int a, int b)');
-defined($function) or die "not ok $t\t$^E\n";
-print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
-$t++;
+ok(defined($function), "_cdecl c_call_sum_int()");
+is($function->Call(2, 3), 5);
 
 #### 13: sum integers and double via _cdecl function
 $function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int_dbl(int a, double b)');
-defined($function) or die "not ok $t\t$^E\n";
-print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
-$t++;
+ok(defined($function), "_cdecl c_call_sum_int_dbl()");
+is($function->Call(2, 3), 5);
 
 #### 14: sum integers and double via _cdecl function, no prototype
 $function = new Win32::API($test_dll, 'c_call_sum_int', 'II', 'I', '_cdecl');
-defined($function) or die "not ok $t\t$^E\n";
-print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
-$t++;
+ok(defined($function), "_cdecl c_call_sum_int()");
+is($function->Call(2, 3), 5);
 
 #### 15: sum 2 integers, no prototype
 $function = new Win32::API($test_dll, 'sum_integers', 'II', 'I');
-defined($function) or die "not ok $t\t$^E\n";
-print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
-$t++;
+ok(defined($function), 'sum_integers()');
+is($function->Call(2, 3), 5);
 
 #### 16: convert integer to string
 $function = new Win32::API($test_dll, 'int_to_str', 'IPI', 'I');
-defined($function) or die "not ok $t\t$^E\n";
+ok(defined($function), 'int_to_str()');
 my $buf= " " x 16;
-print "" . ( ($function->Call(12345, $buf, length($buf)) == 5 && $buf =~ /^12345\x00 +$/ ) ? "" : "not ") . "ok $t\n";
-$t++;
+is( $function->Call(12345, $buf, length($buf)), 5 );
+ok($buf =~ /^12345\x00 +$/);
 
 

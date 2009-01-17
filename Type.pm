@@ -10,11 +10,11 @@ package Win32::API::Type;
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Type.pm 129 2008-10-16 20:28:59Z Cosimo $
+# $Id: Type.pm 458 2009-01-17 17:27:43Z cosimo.streppone $
 #
 #######################################################################
 
-$VERSION = '0.57';
+$VERSION = '0.58';
 
 use Carp;
 
@@ -214,7 +214,7 @@ sub Unpack {
 
     DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n"; 
     $arg = unpack($pack_type, $arg);
-    DEBUG "(PM)Type::Unpack: returning '$arg'\n";  
+    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";  
     return $arg;
 }
 
