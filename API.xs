@@ -4,7 +4,7 @@
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-    # $Id: API.xs 438 2008-10-02 22:51:55Z cosimo.streppone $
+    # $Id: API.xs 468 2009-06-30 20:55:50Z cosimo.streppone $
  */
 
 #define  WIN32_LEAN_AND_MEAN
@@ -609,15 +609,19 @@ PPCODE:
 #if (defined(_MSC_VER) || defined(__BORLANDC__))
 		/*
 			_asm {
-			call    dword ptr [ApiFunctionFloat]
-			fstp    qword ptr [fReturn]
+			call    dword ptr [ApiFunctionDouble]
+			fstp    qword ptr [dReturn]
 		}
 		*/
-	    fReturn = ApiFunctionDouble();
+	    dReturn = ApiFunctionDouble();
 #elif (defined(__GNUC__))
-	asm ("call *%0"::"g"(ApiFunctionDouble));
-	asm ("fstpl %0"::"g"(fReturn));
-    /* XST_mNV(0, (float) fReturn); */
+	    dReturn = ApiFunctionDouble();
+            /*
+              asm ("call *%0"::"g" (ApiFunctionDouble));
+              asm ("fstpl %st(0)");
+              asm ("movl %0,(%esp)");
+            */
+	/* XST_mNV(0, (double) dReturn); */
 #endif
 #ifdef WIN32_API_DEBUG
        printf("(XS)Win32::API::Call: ApiFunctionDouble returned %f\n", dReturn);
@@ -741,9 +745,13 @@ PPCODE:
     	}
     	/*  XSRETURN_NV(dReturn); */
 #elif (defined(__GNUC__))
-	asm ("call *%0"::"g"(ApiFunctionDouble));
-	asm ("fstpl %0"::"g"(dReturn));
-	/* XST_mNV(0, dReturn); */
+        dReturn = ApiFunctionDouble();
+        /*
+              asm ("call *%0"::"g" (ApiFunctionDouble));
+              asm ("fstpl %st(0)");
+              asm ("movl %0,(%esp)");
+        */
+ 	/* XST_mNV(0, dReturn); */
 #endif
         break;
     case T_POINTER:
