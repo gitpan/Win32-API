@@ -8,13 +8,13 @@
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Callback.pm 458 2009-01-17 17:27:43Z cosimo.streppone $
+# $Id$
 #
 #######################################################################
 
 package Win32::API::Callback;
 
-$VERSION = '0.59';
+$VERSION = '0.60';
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.

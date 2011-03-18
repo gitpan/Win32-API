@@ -10,13 +10,12 @@ package Win32::API::Type;
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Type.pm 458 2009-01-17 17:27:43Z cosimo.streppone $
-#
 #######################################################################
 
-$VERSION = '0.59';
+$VERSION = '0.60';
 
 use Carp;
+use Config;
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
@@ -51,10 +50,16 @@ foreach (<DATA>) {
     if($section eq 'TYPE') {
         my($name, $packing) = split(/\s+/);
         # DEBUG "(PM)Type::INIT: Known('$name') => '$packing'\n";
+        if ($packing eq '_P') {
+            $packing = pointer_pack_type();
+        }
         $Known{$name} = $packing;
     } elsif($section eq 'PACKSIZE') {
         my($packing, $size) = split(/\s+/);
         # DEBUG "(PM)Type::INIT: PackSize('$packing') => '$size'\n";
+        if ($size eq '_P') {
+            $size = $Config{ptrsize};
+        }
         $PackSize{$packing} = $size;
     } elsif($section eq 'MODIFIER') {
         my($modifier, $mapto) = split(/\s+/, $_, 2);
@@ -106,6 +111,10 @@ sub is_known {
     } else {
         return defined packing($type);
     }
+}
+
+sub pointer_pack_type {
+    return $Config{ptrsize} == 8 ? 'Q' : 'L';
 }
 
 sub sizeof {
@@ -297,42 +306,43 @@ COLORREF				L
 DWORD                   L
 DWORD32                 L
 DWORD64                 Q
+DWORD_PTR               _P
 FLOAT                   f
-HACCEL                  L
-HANDLE                  L
-HBITMAP                 L
-HBRUSH                  L
-HCOLORSPACE             L
-HCONV                   L
-HCONVLIST               L
-HCURSOR                 L
-HDC                     L
-HDDEDATA                L
-HDESK                   L
-HDROP                   L
-HDWP                    L
-HENHMETAFILE            L
-HFILE                   L
-HFONT                   L
-HGDIOBJ                 L
-HGLOBAL                 L
-HHOOK                   L
-HICON                   L
-HIMC                    L
-HINSTANCE               L
-HKEY                    L
-HKL                     L
-HLOCAL                  L
-HMENU                   L
-HMETAFILE               L
-HMODULE                 L
-HPALETTE                L
-HPEN                    L
-HRGN                    L
-HRSRC                   L
-HSZ                     L
-HWINSTA                 L
-HWND                    L
+HACCEL                  _P
+HANDLE                  _P
+HBITMAP                 _P
+HBRUSH                  _P
+HCOLORSPACE             _P
+HCONV                   _P
+HCONVLIST               _P
+HCURSOR                 _P
+HDC                     _P
+HDDEDATA                _P
+HDESK                   _P
+HDROP                   _P
+HDWP                    _P
+HENHMETAFILE            _P
+HFILE                   _P
+HFONT                   _P
+HGDIOBJ                 _P
+HGLOBAL                 _P
+HHOOK                   _P
+HICON                   _P
+HIMC                    _P
+HINSTANCE               _P
+HKEY                    _P
+HKL                     _P
+HLOCAL                  _P
+HMENU                   _P
+HMETAFILE               _P
+HMODULE                 _P
+HPALETTE                _P
+HPEN                    _P
+HRGN                    _P
+HRSRC                   _P
+HSZ                     _P
+HWINSTA                 _P
+HWND                    _P
 INT                     i
 INT32                   i
 INT64                   q
@@ -345,20 +355,20 @@ LONG                    l
 LONG32                  l
 LONG64                  q
 LONGLONG                q
-LPARAM                  L
-LRESULT                 L
+LPARAM                  _P
+LRESULT                 _P
 REGSAM                  L
-SC_HANDLE               L
-SC_LOCK                 L
-SERVICE_STATUS_HANDLE   L
+SC_HANDLE               _P
+SC_LOCK                 _P
+SERVICE_STATUS_HANDLE   _P
 SHORT                   s
-SIZE_T                  L
-SSIZE_T                 L
+SIZE_T                  _P
+SSIZE_T                 _P
 TBYTE                   c
 TCHAR                   C
 UCHAR                   C
 UINT                    I
-UINT_PTR                L
+UINT_PTR                _P
 UINT32                  I
 UINT64                  Q
 ULONG                   L
@@ -368,7 +378,7 @@ ULONGLONG               Q
 USHORT                  S
 WCHAR                   S
 WORD                    S
-WPARAM                  L
+WPARAM                  _P
 VOID                    c
 
 int                     i
@@ -396,7 +406,7 @@ q   8
 Q   8
 s   2
 S   2
-p   4
+p   _P
 
 [MODIFIER]
 unsigned    int=I long=L short=S char=C

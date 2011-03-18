@@ -6,10 +6,15 @@
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-	# $Id: API.h 438 2008-10-02 22:51:55Z cosimo.streppone $
  */
 
 // #define WIN32_API_DEBUG
+
+#ifdef _WIN64
+typedef unsigned long long long_ptr;
+#else
+typedef unsigned long long_ptr;
+#endif
 
 #define T_VOID				0
 #define T_NUMBER			1
@@ -32,11 +37,11 @@ typedef void   ApiVoid(void);
 typedef int    ApiInteger(void);
 
 typedef struct {
-    int t;
+	int t;
 	LPBYTE b;
 	char c;
 	char *p;
-	long l;
+	long_ptr l; // 4 bytes on 32bit; 8 bytes on 64bbit; not sure if it is correct
 	float f;
 	double d;
 } APIPARAM;

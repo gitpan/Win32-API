@@ -1,27 +1,21 @@
-package Win32::API::Struct;
-
-# See the bottom of this file for the POD documentation.  Search for the
-# string '=head'.
-
-#######################################################################
 #
 # Win32::API::Struct - Perl Win32 API struct Facility
 # 
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Struct.pm 438 2008-10-02 22:51:55Z cosimo.streppone $
-#######################################################################
 
-$VERSION = '0.50';
+package Win32::API::Struct;
 
-use Win32::API::Type;
+$VERSION = '0.60';
 
 use Carp;
+use Win32::API::Type;
+use Config;
 
-require Exporter;       # to export the constants to the main:: space
-require DynaLoader;     # to dynuhlode the module.
-@ISA = qw( Exporter DynaLoader );
+require Exporter;
+require DynaLoader;
+@ISA = qw(Exporter DynaLoader);
 
 my %Known = ();
 
@@ -55,19 +49,21 @@ sub typedef {
 sub recognize {
     my($type, $name) = @_;
     my($size, $packing);
-    if(exists $Known{$type}) {
-        $packing = ">";
-        return $name, $packing, $type;
-    } else {
+
+    if (is_known($type)) {
+        $packing = '>';
+        return ($name, $packing, $type);
+    }
+	else {
         $packing = Win32::API::Type::packing($type);
         return undef unless defined $packing;           
         if($name =~ s/\[(.*)\]$//) {
             $size = $1;     
-            $packing = $packing."*".$size;  
+            $packing = $packing . '*' . $size;  
         }
         DEBUG "(PM)Struct::recognize got '$name', '$type' -> '$packing'\n";
-        return $name, $packing, $type;
-    }   
+        return ($name, $packing, $type);
+    }
 }
 
 sub new {
@@ -77,11 +73,12 @@ sub new {
         typedef => [],
     };
     if($#_ == 0) {
-        if(exists $Known{$_[0]}) {
+        if (is_known($_[0])) {
             DEBUG "(PM)Struct::new: got '$_[0]'\n";
             $self->{typedef} = $Known{$_[0]}->{typedef};
             foreach my $member (@{ $self->{typedef} }) {
                 ($name, $packing, $type) = @$member;
+                next unless defined $name;
                 if($packing eq '>') {
                     $self->{$name} = Win32::API::Struct->new($type);
                 }
@@ -115,46 +112,53 @@ sub sizeof {
     my $self = shift;
     my $size = 0;
     my $align = 0;
-    my $first = undef;
-    foreach my $member (@{ $self->{typedef} }) {
-        my($name, $packing, $type) = @$member;
-        
-        if(ref( $self->{$name} ) eq "Win32::API::Struct") {
+    my $first = '';
+
+    for my $member (@{ $self->{typedef} }) {
+        my($name, $packing, $type) = @{$member};
+        next unless defined $name;
+        if (ref $self->{$name} eq q{Win32::API::Struct}) {
+            # If member is a struct, recursively calculate its size
+            # FIXME for subclasses
             $size += $self->{$name}->sizeof();
-            # $align = $self->{$name}->sizeof() if $self->{$name}->sizeof() > $align;
-        } else {        
-            if($packing =~ /\w\*(\d+)/) {           
+        }        
+        else {            
+            # Member is a simple type (LONG, DWORD, etc...)
+            if($packing =~ /\w\*(\d+)/) { # Arrays (ex: 'c*260')
                 $size += Win32::API::Type::sizeof($type) * $1;
-            	$first = Win32::API::Type::sizeof($type) * $1 unless defined $first;
+                $first = Win32::API::Type::sizeof($type) * $1 unless defined $first;
                 DEBUG "(PM)Struct::sizeof: sizeof with member($name) now = ". $size. "\n";
-            } else {            
-                $size += Win32::API::Type::sizeof($type);
+            }
+             else { # Simple types
+                my $type_size = Win32::API::Type::sizeof($type);
+                $align = $type_size if $type_size > $align;
+                my $type_align = (($size + $type_size) % $type_size);
+                $size += $type_size + $type_align;
                 $first = Win32::API::Type::sizeof($type) unless defined $first;
-            	$align = Win32::API::Type::sizeof($type)
-            		if Win32::API::Type::sizeof($type) > $align;                
-                DEBUG "(PM)Struct::sizeof: sizeof with member($name) now = ". $size. "\n";
             }
         }
     }
-    DEBUG "(PM)Struct::sizeof first=$first align=$align\n";
-    #DEBUG "(PM)Struct::sizeof returning %d\n", $first + (scalar(@{ $self->{typedef} })-1) * $align;    
-    #return $first + (scalar(@{ $self->{typedef} })-1) * $align;    
-    DEBUG "(PM)Struct::sizeof returning %d\n", scalar(@{ $self->{typedef} }) * $align;    
-	if(defined $align and $align > 0) {
-    	return scalar(@{ $self->{typedef} }) * $align;
-    } else {
-    	return $size;
+
+    my $struct_size = $size;    
+    if (defined $align && $align > 0) {
+        $struct_size += ($size % $align);
     }
-    return $size;
+    DEBUG "(PM)Struct::sizeof first=$first totalsize=$struct_size\n";
+    return $struct_size;
 }
 
 sub align {
     my $self = shift;
 	my $align = shift;
 	
-	if(not defined $align) {
-		return $self->{align} unless $self->{align} eq 'auto';
+	if (not defined $align) {
+
+		if (! (defined $self->{align} && $self->{align} eq 'auto')) {
+			return $self->{align};
+		}
+
 		$align = 0;
+
 		foreach my $member (@{ $self->{typedef} }) {
 			my($name, $packing, $type) = @$member;
 
@@ -179,7 +183,8 @@ sub align {
 sub getPack {
     my $self = shift;
     my $packing = "";
-    my($type, $name);
+    my $packed_size = 0;
+    my($type, $name, $type_size, $type_align);
     my @items = ();
     my @recipients = ();    
     
@@ -188,13 +193,12 @@ sub getPack {
     foreach my $member (@{ $self->{typedef} }) {
         ($name, $type, $orig) = @$member;
         if($type eq '>') {
-            my($subpacking, $subitems, $subrecipients) = $self->{$name}->getPack();
-            
-            DEBUG "(PM)Struct::getPack($self->{__typedef__}) ++ $subpacking\n";
-            
-            $packing .= $subpacking;
+            my($subpacking, $subitems, $subrecipients, $subpacksize) = $self->{$name}->getPack();           
+            DEBUG "(PM)Struct::getPack($self->{__typedef__}) ++ $subpacking\n";            
             push(@items, @$subitems);
-            push(@recipients, @$subrecipients);
+            push(@recipients, @$subrecipients);	    
+            $packing .= $subpacking;
+            $packed_size += $subpacksize;
         } else {
             if($type =~ /\w\*(\d+)/) {
                 my $size = $1;
@@ -204,79 +208,72 @@ sub getPack {
             DEBUG "(PM)Struct::getPack($self->{__typedef__}) ++ $type\n"; 
             
             if($type eq 'p') {
-                $type = "L";
+                $type = ($Config{ptrsize} == 8) ? 'Q' : 'L';
                 push(@items, Win32::API::PointerTo($self->{$name}));
             } else {
                 push(@items, $self->{$name});
             }
-            $packing .= $type;
-            
-            if($Win32::API::Type::PackSize{$type} < $align) {
-            	$packing .= ("x" x ($align - $Win32::API::Type::PackSize{$type}));
-            }
-            
             push(@recipients, $self);
+            $type_size = Win32::API::Type::sizeof($orig);
+            $type_align = (($packed_size + $type_size) % $type_size);
+            $packing .= "x" x $type_align . $type;
+            $packed_size += $type_size + $type_align;
         }
     }
-    DEBUG "(PM)Struct::getPack: $self->{__typedef__}(buffer) = pack($packing, @items)\n";
-    return($packing, [@items], [@recipients]);
+
+    DEBUG "(PM)Struct::getPack: $self->{__typedef__}(buffer) = pack($packing, $packed_size)\n";
+
+    return($packing, [@items], [@recipients], $packed_size);
 }
-    
 
 sub Pack {
     my $self = shift;
     my($packing, $items, $recipients) = $self->getPack();
+
     DEBUG "(PM)Struct::Pack: $self->{__typedef__}(buffer) = pack($packing, @$items)\n";
+
     $self->{buffer} = pack($packing, @$items);
-    if(DEBUG) {
+
+    if (DEBUG) {
         for my $i (0..$self->sizeof-1) {
-            printf "    %3d: 0x%02x\n", $i, ord(substr($self->{buffer}, $i, 1));
+            printf "#pack#    %3d: 0x%02x\n", $i, ord(substr($self->{buffer}, $i, 1));
         }
     }
+
     $self->{buffer_recipients} = $recipients
 }
 
 sub getUnpack {
     my $self = shift;
     my $packing = "";
-    my($type, $name);
+    my $packed_size = 0;
+    my($type, $name, $type_size, $type_align);
     my @items = ();
     my $align = $self->align();
     foreach my $member (@{ $self->{typedef} }) {
         ($name, $type, $orig) = @$member;
         if($type eq '>') {
-            my($subpacking, @subitems) = $self->{$name}->getUnpack();
-            
+            my($subpacking, @subitems, $subpacksize) = $self->{$name}->getUnpack();            
             DEBUG "(PM)Struct::getUnpack($self->{__typedef__}) ++ $subpacking\n";
             $packing .= $subpacking;
-            
-            
+            $packed_size += $subpacksize;	    
             push(@items, @subitems);
         } else {
             if($type =~ /\w\*(\d+)/) {
                 my $size = $1;
                 $type = "Z$size";
-            }
-          
-          	#if($type eq 'p') {
-			#	$packing .= 'Z*';
-			#	DEBUG "(PM)Struct::getUnpack($self->{__typedef__}) ++ Z*\n";
-			#} else {
-				$packing .= $type;
-				DEBUG "(PM)Struct::getUnpack($self->{__typedef__}) ++ $type\n";
-			#}
-            if($type ne 'p' and $type !~ /^Z(\d+)/ and $Win32::API::Type::PackSize{$type} < $align) {
-				DEBUG "(PM)Struct::getUnpack %s(%d) < %d\n",
-					$type, $Win32::API::Type::PackSize{$type}, $align
-				;
-            	$packing .= ("x" x ($align - $Win32::API::Type::PackSize{$type}));
-            }
+            }          
+	    DEBUG "(PM)Struct::getUnpack($self->{__typedef__}) ++ $type\n";
+	    $type_size = Win32::API::Type::sizeof($orig);
+	    $type_align = (($packed_size + $type_size) % $type_size);
+	    $packing .= "x" x $type_align . $type;
+	    $packed_size += $type_size + $type_align;
 
             push(@items, $name);
         }
     }
     DEBUG "(PM)Struct::getUnpack($self->{__typedef__}): unpack($packing, @items)\n";
-    return($packing, @items);
+    return($packing, @items, $packed_size);
 }
 
 sub Unpack {
@@ -287,13 +284,13 @@ sub Unpack {
     foreach my $i (0..$#items) {
         my $recipient = $self->{buffer_recipients}->[$i];
         DEBUG "(PM)Struct::Unpack: %s(%s) = '%s' (0x%08x)\n",
-        	$recipient->{__typedef__},
-        	$items[$i],
-        	$itemvalue[$i],
-        	$itemvalue[$i],
+                $recipient->{__typedef__},
+                $items[$i],
+                $itemvalue[$i],
+                $itemvalue[$i],
         ;       
         $recipient->{$items[$i]} = $itemvalue[$i];
-        DEBUG "(PM)Struct::Unpack: self.$items[$i] = $self->{$items[$i]}\n";        
+        # DEBUG "(PM)Struct::Unpack: self.items[$i] = $self->{$items[$i]}\n";        
     }
 }
 

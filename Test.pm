@@ -3,9 +3,15 @@
 # 
 # Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Test.pm 438 2008-10-02 22:51:55Z cosimo.streppone $
 
 package Win32::API::Test;
+
+sub is_perl_64bit () {
+	use Config;
+	# was $Config{archname} =~ /x64/;
+	return 1 if $Config{ptrsize} == 8;
+	return;
+}
 
 sub compiler_name () {
 	use Config;
@@ -68,9 +74,15 @@ sub compiler_version_from_shell () {
 	return($ver);
 }
 
-sub find_test_dll () {
+sub find_test_dll {
 	require File::Spec;
-	my $dll_name = $_[0];
+
+	my $default_dll_name = is_perl_64bit()
+		? 'API_test64.dll'
+		: 'API_test.dll';
+
+	my $dll_name = $_[0] || $default_dll_name;
+
 	my @paths = qw(.. ../t ../t/dll . ./dll ./t/dll);
 	while(my $path = shift @paths)
 	{

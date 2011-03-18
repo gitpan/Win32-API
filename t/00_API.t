@@ -1,6 +1,6 @@
 #!perl -w
 
-# $Id: 00_API.t 453 2009-01-17 17:06:10Z cosimo.streppone $
+# $Id$
 
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
@@ -23,9 +23,9 @@ $^E = 0;
 # On cygwin, $$ is different from Win32 process id
 my $cygwin = $^O eq 'cygwin';
 
-$test_dll = Win32::API::Test::find_test_dll('API_test.dll');
-diag('API_Test.dll found at ('.$test_dll.')');
-ok(-e $test_dll, 'found API_Test.dll');
+$test_dll = Win32::API::Test::find_test_dll();
+diag('API test dll found at ('.$test_dll.')');
+ok(-e $test_dll, 'found API test dll');
 
 SKIP: {
 

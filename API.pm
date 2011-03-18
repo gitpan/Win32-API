@@ -11,8 +11,6 @@
 # Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
 #  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
 #
-# $Id: API.pm 458 2009-01-17 17:27:43Z cosimo.streppone $
-#
 #######################################################################
 
 package Win32::API;
@@ -39,7 +37,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.59';
+$VERSION = '0.60';
 
 #### some package-global hash to 
 #### keep track of the imported 

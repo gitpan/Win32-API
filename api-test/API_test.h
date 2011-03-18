@@ -1,7 +1,7 @@
 //
 // API_test.h
 //
-// $Id: API_test.h 449 2009-01-17 15:59:18Z cosimo.streppone $
+// $Id$
 
 // The following ifdef block is the standard way of creating macros which make exporting 
 // from a DLL simpler. All files within this DLL are compiled with the API_TEST_EXPORTS
@@ -20,6 +20,7 @@ typedef struct _simple_struct {
 	int a;
 	double b;
 	char * c;
+	DWORD_PTR d;
 } simple_struct, LPsimple_struct;
 
 // typedef int callback_func(int);
