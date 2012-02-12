@@ -1,0 +1,22 @@
+---
+abstract: 'Perl Win32 API Import Facility'
+author:
+  - 'Cosimo Streppone <cosimo@cpan.org>'
+  - 'Aldo Calpini <dada@perl.it>'
+build_requires:
+  ExtUtils::MakeMaker: 0
+dynamic_config: 0
+generated_by: 'ExtUtils::MakeMaker version 6.42, CPAN::Meta::Converter version 2.112621'
+keywords:
+  - win32
+  - api
+  - dll
+  - libraries
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Win32-API
+requires:
+  Win32: 0
+version: 0.62
