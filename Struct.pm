@@ -9,7 +9,7 @@ package Win32::API::Struct;
 use strict;
 use warnings;
 use vars qw( $VERSION @ISA );
-$VERSION = '0.62_01';
+$VERSION = '0.62_02';
 
 use Carp;
 use Win32::API::Type;
