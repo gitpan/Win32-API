@@ -1,3 +1,4 @@
+CFG = API_test - Win32 Debug
 # Microsoft Developer Studio Generated NMAKE File, Based on API_test.dsp
 !IF "$(CFG)" == ""
 CFG=API_test - Win32 Release
