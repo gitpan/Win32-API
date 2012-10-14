@@ -4,7 +4,7 @@
       "Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>, Daniel Dragan <bulkdd@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.6302, CPAN::Meta::Converter version 2.120921",
+   "generated_by" : "ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.120921",
    "keywords" : [
       "win32",
       "api",
@@ -51,11 +51,11 @@
          }
       }
    },
-   "release_status" : "testing",
+   "release_status" : "stable",
    "resources" : {
       "repository" : {
          "url" : "https://github.com/cosimo/perl5-win32-api"
       }
    },
-   "version" : "0.70_02"
+   "version" : "0.71"
 }
