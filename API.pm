@@ -27,18 +27,19 @@ BEGIN {
     die "Win32::API on Cygwin requires the cygpath tool on PATH"
         if ISCYG && index(`cygpath --help`,'Usage: cygpath') == -1;
 
-    use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK %Imported $VERSION );
+    use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK $VERSION );
 
     @ISA = qw( Exporter DynaLoader );
     @EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
     WriteMemory SafeReadWideCString ); # symbols to export on request
 
-    use Scalar::Util qw( looks_like_number );
+    use Scalar::Util qw( looks_like_number weaken);
 
     $DEBUG = 0;
     
     sub ERROR_NOACCESS	() { 998 }
     sub ERROR_NOT_ENOUGH_MEMORY () { 8 }
+    sub ERROR_INVALID_PARAMETER () { 87 }
     sub APICONTROL_CC_STD	() { 0 }
     sub APICONTROL_CC_C	() { 1 }
     sub APICONTROL_CC_mask  () { 0x7 }
@@ -76,7 +77,7 @@ my %Procedures = ();
 # dynamically load in the API extension module.
 # BEGIN required for constant subs in BOOT:
 BEGIN {
-    $VERSION = '0.76_01';
+    $VERSION = '0.76_02';
     bootstrap Win32::API;
 }
 
@@ -84,6 +85,8 @@ BEGIN {
 # PUBLIC METHODS
 #
 sub new {
+    die "Win32::API/More::new/Import is a class method that takes 2 to 6 parameters, see POD"
+        if @_ < 3 || @_ > 7;
     my ($class, $dll, $hproc, $ccnum, $outnum) = (shift, shift);
     if(! defined $dll){
         $hproc = shift;
@@ -193,30 +196,59 @@ sub new {
         #calculate add to ESP amount, in units of 4, will be *4ed later
         $stackunwind += $_ == T_QUAD || $_ == T_DOUBLE ? 2 : 1 for(@{$self->{in}});
         if($stackunwind > 0xFFFF) {
-            DEBUG "FAILED This function has too many parameters (> ~65535) \n";
-            Win32::API::FreeLibrary($hdll) if $freedll;
-            Win32::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
-            $! = Win32::GetLastError();
-            return undef;
+            goto too_many_in_params;
         }
+    }
+    # if a prototype has 8 byte types on 32bit, $stackunwind will be higher than
+    # length of {in} letter array, so 2 different checks need to be done
+    if($#{$self->{in}} > 0xFFFF) {
+        too_many_in_params:
+        DEBUG "FAILED This function has too many parameters (> ~65535) \n";
+        Win32::API::FreeLibrary($hdll) if $freedll;
+        Win32::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        $! = Win32::GetLastError();
+        return undef;
     }
     #### ok, let's stuff the object
     $self->{procname} = $proc;
     $self->{dll}      = $hdll;
     $self->{dllname}  = $dll;
-    $self->{control}  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
-                             .(PTRSIZE == 8 ? 'L' : '') #padding for x64
+
+    $outnum &= ~T_FLAG_NUMERIC;
+    my $control;
+    $self->{weakapi} = \$control;
+    weaken($self->{weakapi});
+    $control = pack(         'L'
+                             .'L'
                              .(PTRSIZE == 8 ? 'Q' : 'L')
                              .(PTRSIZE == 8 ? 'Q' : 'L')
-                        , $hproc
+                             .(PTRSIZE == 8 ? 'Q' : 'L')
+                             .(PTRSIZE == 8 ? '' : 'L')
                         ,($class eq "Win32::API::More" ? APICONTROL_is_more : 0)
                         | ($proto ? APICONTROL_has_proto : 0)
                         | $ccnum
                         | (PTRSIZE == 8 ? 0 :  $stackunwind << 8)
                         | $outnum << 24
-                        ,(PTRSIZE == 8 ? (0) : ())
-                        , (($self->{in})+0)
-                        , (exists $self->{intypes} ? ($self->{intypes})+0 : 0));
+                        , scalar(@{$self->{in}}) * PTRSIZE #in param count, in SV * units
+                        , $hproc
+                        , \($self->{weakapi})+0 #weak api obj ref
+                        , (exists $self->{intypes} ? ($self->{intypes})+0 : 0)
+                        , 0); #padding to align to 8 bytes on 32 bit only
+    #align to 16 bytes
+    $control .= "\x00" x ((((length($control)+ 15) >> 4) << 4)-length($control));
+    #make a APIPARAM template array
+    my ($i, $arr_end) = (0, scalar(@{$self->{in}}));
+    for(; $i< $arr_end; $i++) {
+        my $tin = $self->{in}[$i];
+        #unsigned meaningless no sign vs zero extends are done bc uv/iv is
+        #the biggest native integer on the cpu, big to small is truncation
+        #numeric is implemented as T_NUMCHAR for in, keeps asm jumptable clean
+        $tin &= ~(T_FLAG_UNSIGNED|T_FLAG_NUMERIC);
+        $tin--; #T_VOID doesn't exist as in param in XS
+        #put index of param array slice in unused space for croaks, why not?
+        $control .= "\x00" x 8 . pack('CCSSS', $tin, 0, 0, $i, $i+1);
+    }
+    _Align($control, 16); #align the whole PVX to 16 bytes for SSE moves
 
     #### keep track of the imported function
     if(defined $dll){
@@ -225,63 +257,26 @@ sub new {
     }
     DEBUG "Object blessed!\n";
 
-    #one-off classes might go away since there is no measurable time difference
-    #between hv_fetch_ent with a HEK SV and this crazy scheme
-    #
-    #there are unnecessery pack/unpack calls here
-    my ($packedcontrol, $controlmask) = (pack('p',$self->{control}), '');
-    my @splitcontrol = split '', $packedcontrol;
-    #this probably isn't the most efficient algorithm for generating an
-    #null-less XOR key/mask that results in a null-less delta
-    foreach my $char (@splitcontrol){
-        my ($intchar, $i) = unpack('C', $char);
-        for($i = 1; $i < 256; $i++){
-            if(($intchar ^ $i) != 0) {
-                $controlmask .= pack('C', $i);
-                goto chardone;
-            }
-        }
-        #couldn't find a non null byte to XOR original
-        die "Win32::API: can't make XOR mask";
-        chardone:
-        0;
-    }
-
-    $packedcontrol = pack((PTRSIZE == 8 ? 'Q' : 'L'),
-         unpack((PTRSIZE == 8 ? 'Q' : 'L'), $packedcontrol)
-         ^ unpack((PTRSIZE == 8 ? 'Q' : 'L'), $controlmask))
-         .$controlmask;
-    die "Win32::API: can't make XOR mask" if index($packedcontrol, "\x00") != -1;
-    $packedcontrol = "W32::API".$packedcontrol; #"W32::API" is exactly 8 bytes
-    {
-        no strict 'refs';
-        @{$packedcontrol.'::ISA'} = $class;
-        #since Call() is the most frequently called function, put it in the
-        #one off stash, this is to take advantage of a shortcut in S_method_common
-        *{$packedcontrol.'::Call'} = *Win32::API::Call;
-    }
-    #### cast the spell
-    bless($self, $packedcontrol);
-    #bless($self, $class);
-    return $self;
+    my $ref = bless(\$control, $class);
+    SetMagicSV($ref, $self);
+    return $ref;
 }
 
 sub Import {
-    my ($class, $dll, $proc, $in, $out, $callconvention) = @_;
-    $Imported{"$dll:$proc"} = Win32::API->new($dll, $proc, $in, $out, $callconvention)
-        or return 0;
-    my $P = (caller)[0];
-    eval qq(
-        sub ${P}::$Imported{"$dll:$proc"}->{procname} { \$Win32::API::Imported{"$dll:$proc"}->Call(\@_); }
-    );
-    return $@ ? 0 : 1;
+    my $closure = shift->new(@_)
+        or return undef;
+    my $procname = ${Win32::API::GetMagicSV($closure)}{procname};
+    #dont allow "sub main:: {0;}"
+    Win32::SetLastError(ERROR_INVALID_PARAMETER), return undef if $procname eq '';
+    _ImportXS($closure, (caller)[0].'::'.$procname);
+    return $closure;
 }
 
 #######################################################################
 # PRIVATE METHODS
 #
 sub DESTROY {
-    my ($self) = @_;
+    my ($self) = GetMagicSV($_[0]);
 
     return if ! defined $self->{dllname};
     #### decrease this library's procedures reference count
@@ -293,21 +288,10 @@ sub DESTROY {
         Win32::API::FreeLibrary($Libraries{$self->{dllname}});
         delete($Libraries{$self->{dllname}});
     }
-    #can't clog up symbol table, delete our unique class name
-    my $class = ref($self).'::';
-    {
-        no strict 'refs';
-        #wipe @ISA, etc
-        foreach my $symbol (keys %{$class}) {
-            delete ${$class}{$symbol};
-        }
-        #wipe package
-        delete $::{$class};
-    }
 }
 
 # Convert calling convention string (_cdecl|__stdcall)
-# to an integer (1|0). Unknown counts as __stdcall
+# to a C const. Unknown counts as __stdcall
 #
 sub calltype_to_num {
     my $type = shift;
@@ -345,42 +329,42 @@ sub type_to_num {
         or $type eq 'L'
         or ( PTRSIZE == 8  and $type eq 'Q' || $type eq 'q'))
     {
-        $num = 1;
+        $num = T_NUMBER;
     }
     elsif ($type eq 'P'
         or $type eq 'p')
     {
-        $num = 2;
+        $num = T_POINTER;
     }
     elsif ($type eq 'I'
         or $type eq 'i')
     {
-        $num = 3;
+        $num = T_INTEGER;
     }
     elsif ($type eq 'f'
         or $type eq 'F')
     {
-        $num = 7;
+        $num = T_FLOAT;
     }
     elsif ($type eq 'D'
         or $type eq 'd')
     {
-        $num = 8;
+        $num = T_DOUBLE;
     }
     elsif ($type eq 'c'
         or $type eq 'C')
     {
-        $num = 6;
+        $num = $numeric ? T_NUMCHAR : T_CHAR;
     }
     elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
-        $num = 5;
+        $num = T_QUAD;
     }
     elsif($type eq '>'){
         die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
-        $num = 0; #'V' takes this branch, which is T_VOID in C
+        $num = T_VOID; #'V' takes this branch, which is T_VOID in C
     }#not valid return types of the C func
     if(defined $out) {#b/B remains private/undocumented
         die "Win32::API invalid return type, structs and ".
@@ -390,20 +374,20 @@ sub type_to_num {
     else {#in type
         if ($type eq 's' or $type eq 'S' or $type eq 't' or $type eq 'T')
         {
-            $num = 51;
+            $num = T_STRUCTURE;
         }
         elsif ($type eq 'b'
             or $type eq 'B')
         {
-            $num = 22;
+            $num = T_POINTERPOINTER;
         }
         elsif ($type eq 'k'
             or $type eq 'K')
         {
-            $num = 55;
+            $num = T_CODE;
         }
     }
-    $num |= 0x40 if $numeric;
+    $num |= T_FLAG_NUMERIC if $numeric;
     return $num;
 }
 
@@ -433,63 +417,63 @@ sub type_to_num {
             $type eq 'S'
             || $type eq 's'))
     {
-        $num = 1;
+        $num = Win32::API::T_NUMBER;
         if(defined $out && ($type eq 'N' || $type eq 'L'
                         ||  $type eq 'S' || $type eq 'Q')){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif ($type eq 'P'
         or $type eq 'p')
     {
-        $num = 2;
+        $num = Win32::API::T_POINTER;
     }
     elsif ($type eq 'I'
         or $type eq 'i')
     {
-        $num = 3;
+        $num = Win32::API::T_INTEGER;
         if(defined $out && $type eq 'I'){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif ($type eq 'f'
         or $type eq 'F')
     {
-        $num = 7;
+        $num = Win32::API::T_FLOAT;
     }
     elsif ($type eq 'D'
         or $type eq 'd')
     {
-        $num = 8;
+        $num = Win32::API::T_DOUBLE;
     }
     elsif ($type eq 'c'
         or $type eq 'C')
     {
-        $num = 6;
+        $num = $numeric ? Win32::API::T_NUMCHAR : Win32::API::T_CHAR;
         if(defined $out && $type eq 'C'){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
-        $num = 5;
+        $num = Win32::API::T_QUAD;
         if(defined $out && $type eq 'Q'){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif ($type eq 's') #4 is only used for out params
     {
-        $num = 4;        
+        $num = Win32::API::T_SHORT;
     }
     elsif ($type eq 'S')
     {
-        $num = 4 | 0x80;
+        $num = Win32::API::T_SHORT | Win32::API::T_FLAG_UNSIGNED;
     }
     elsif($type eq '>'){
         die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
-        $num = 0; #'V' takes this branch, which is T_VOID in C
+        $num = Win32::API::T_VOID; #'V' takes this branch, which is T_VOID in C
     } #not valid return types of the C func
     if(defined $out) {#b/B remains private/undocumented
         die "Win32::API invalid return type, structs and ".
@@ -500,20 +484,20 @@ sub type_to_num {
         if (   $type eq 't'
             or $type eq 'T')
         {
-            $num = 51;
+            $num = Win32::API::T_STRUCTURE;
         }
         elsif ($type eq 'b'
             or $type eq 'B')
         {
-            $num = 22;
+            $num = Win32::API::T_POINTERPOINTER;
         }
         elsif ($type eq 'k'
             or $type eq 'K')
         {
-            $num = 55;
+            $num = Win32::API::T_CODE;
         }
     }
-    $num |= 0x40 if $numeric;
+    $num |= Win32::API::T_FLAG_NUMERIC if $numeric;
     return $num;
 }
 package Win32::API;
@@ -661,7 +645,7 @@ Win32::API - Perl Win32 API Import Facility
 
   use Win32::API;
   $function = Win32::API::More->new(
-      'mydll', 'int sum_integers(int a, int b)',
+      'mydll', 'int sum_integers(int a, int b)'
   );
   $return = $function->Call(3, 2);
 
@@ -669,7 +653,7 @@ Win32::API - Perl Win32 API Import Facility
 
   use Win32::API;
   $function = Win32::API::More->new(
-      undef, 38123456, 'int name_ignored(int a, int b)',
+      undef, 38123456, 'int name_ignored(int a, int b)'
   );
   $return = $function->Call(3, 2);
 
@@ -677,7 +661,7 @@ Win32::API - Perl Win32 API Import Facility
   
   use Win32::API;
   $function = Win32::API::More->new(
-      'mydll', 'sum_integers', 'II', 'I',
+      'mydll', 'sum_integers', 'II', 'I'
   );
   $return = $function->Call(3, 2);
      
@@ -685,15 +669,15 @@ Win32::API - Perl Win32 API Import Facility
   
   use Win32::API;
   $function = Win32::API::More->new(
-      undef, 38123456, 'name_ignored', 'II', 'I',
+      undef, 38123456, 'name_ignored', 'II', 'I'
   );
   $return = $function->Call(3, 2);
   
-  #### Method 5: with Import
+  #### Method 5: with Import (slightly faster than ->Call)
  
   use Win32::API;
   Win32::API::More->Import(
-      'mydll', 'int sum_integers(int a, int b)',
+      'mydll', 'int sum_integers(int a, int b)'
   );  
   $return = sum_integers(3, 2);
 
@@ -747,21 +731,31 @@ C<Call()> method on this object to perform a call to the imported API
 
 Starting from version 0.40, you can also avoid creating a Win32::API::More object
 and instead automatically define a Perl sub with the same name of the API
-function you're importing. The details of the API definitions are the same,
-just the call is different:
+function you're importing. This 2nd way using C<Import> to create a sub instead
+of an object is slightly faster than doing C<-E<gt>Call()>. The details of the
+API definitions are the same, just the method name is different:
 
     my $GetCurrentProcessId = Win32::API::More->new(
         "kernel32", "int GetCurrentProcessId()"
     );
+    die "Failed to import GetCurrentProcessId" if !$GetCurrentProcessId;
+    $GetCurrentProcessId->UseMI64(1);
     my $PID = $GetCurrentProcessId->Call();
 
     #### vs.
 
-    Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
+    my $UnusedGCPI = Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
+    die "Failed to import GetCurrentProcessId" if !$UnusedGCPI;
+    $UnusedGCPI->UseMI64(1);
     $PID = GetCurrentProcessId();
 
-Note that C<Import> returns 1 on success and 0 on failure (in which case you
-can check the content of C<$^E>). 
+Note that C<Import> returns the Win32::API obj on success and false on failure
+(in which case you can check the content of C<$^E>). This allows some settings
+to be set through method calls that can't be specified as a parameter to Import,
+yet still have the convience of not writing C<-E<gt>Call()>. The Win32::API obj
+does not need to be assigned to a scalar. C<unless(Win32::API::More-E<gt>Import>
+is fine. Prior to v0.76_02, C<Import> returned returned 1 on success and 0 on
+failure.
 
 =head2 IMPORTING A FUNCTION
 
@@ -800,7 +794,8 @@ readable, GetLastError will be ERROR_NOACCESS.
 
 The C prototype of the function. If you are using a function pointer, the name
 of the function should be something "friendly" to you and no attempt is made
-to retrive such a name from any DLL's export table.
+to retrive such a name from any DLL's export table. This name for a function
+pointer is also used for Import().
 
 =back
 
@@ -834,8 +829,9 @@ readable, GetLastError will be ERROR_NOACCESS.
 
 =item 3.
 The name of the function (as exported by the library) or for function pointers
-a name that is "friendly" to you. No attempt is made to retrive such a
-name from any DLL's export table in the 2nd case.
+a name that is "friendly" to you. This name for a function pointer is also used
+for Import(). No attempt is made to retrive such a name from any DLL's export
+table in the 2nd case.
 
 =item 4.
 The number and types of the arguments the function expects as input.
@@ -848,7 +844,9 @@ And optionally you can specify the calling convention, this defaults to
 '__stdcall', alternatively you can specify '_cdecl' or '__cdecl' (API > v0.68)
 or (API > v0.70_02) 'WINAPI', 'NTAPI', 'CALLBACK' (__stdcall), 'WINAPIV' (__cdecl) .
 False is __stdcall. Vararg functions are always cdecl. MS DLLs are typically
-stdcall. Non-MS DLLs are typically cdecl.
+stdcall. Non-MS DLLs are typically cdecl. If API > v0.75, mixing up the calling
+convention on 32 bits is detected and Perl will C<croak> an error message and
+C<die>.
 
 =back
 
@@ -984,10 +982,10 @@ be treated as a Math::Int64 object without having to previously call
 L</UseMI64>.
 
 =item C<F>: 
-value is a floating point number (float)
+value is a single precision (4 bytes) floating point number (float)
 
 =item C<D>: 
-value is a double precision number (double)
+value is a double precision (8 bytes) floating point number (double)
 
 =item C<S>: 
 value is a unsigned short (unsigned short)
@@ -1002,7 +1000,11 @@ value is a char (char), pass as C<"a">, not C<97>, C<"abc"> will truncate to C<"
 value is a pointer (to a string, structure, etc...)
 padding out the buffer string is required, buffer overflow detection is
 performed. Pack and unpack the data yourself. If P is a return type, only
-null terminated strings or NULL pointer are supported. It is suggested to
+null terminated strings or NULL pointer are supported. If P is an in type, NULL
+is integer C<0>. C<undef>, C<"0">, and C<""+0> are not integer C<0>, C<"0"+0> is
+integer C<0>.
+
+It is suggested to
 not use P as a return type and instead use N and read the memory yourself, and
 free the pointer if applicable. This pointer is effectivly undefined after the
 C function returns control to Perl. The C function may not hold onto it after
@@ -1259,9 +1261,12 @@ and L</ReadMemory> and L</IsBadReadPtr> require an explicit length.
 
 =head3 new
 
+    $obj = Win32::API::More->new([$dllname | (undef , $funcptr)], [$c_proto | ($in, $out [, $calling_convention])]);
+
 See L</DESCRIPTION>.
 
 =head3 Import
+    $obj = Win32::API::More->Import([$dllname | (undef , $funcptr)], [$c_proto | ($in, $out [, $calling_convention])]);
 
 See L</DESCRIPTION>.
 
@@ -1274,7 +1279,7 @@ The main method of a Win32::API object. Documented elsewhere in this document.
 =head3 UseMI64
 
     $bool = $APIObj->UseMI64();
-    $t_or_f_of_newbool = $APIObj->UseMI64($newbool);
+    $oldbool = $APIObj->UseMI64($newbool);
 
 Turns on Quads as L<Math::Int64> objects support for a particular object
 instance. You must call L<perlfunc/use>/L<perlfunc/require> on Math::Int64
@@ -1339,6 +1344,14 @@ prototype interface.
 
 Added in 0.70.
 
+=item __stdcall vs __cdecl checking on 32 bits
+
+Added in 0.76_01
+
+=item Import returns an api obj on success, undef on failure, instead of 1 or 0
+
+Added in 0.76_02
+
 =back
 
 See the C<Changes> file for more details, many of which not mentioned here.
@@ -1351,13 +1364,9 @@ See the C<Changes> file for more details, many of which not mentioned here.
 
 Untested.
 
-=item E<nbsp> 32 bit perls with native quads
-
-Untested.
-
 =item E<nbsp> ithreads
 
-Untested.
+Minimally tested.
 
 =item E<nbsp> C functions getting utf8 scalars vs byte scalars
 

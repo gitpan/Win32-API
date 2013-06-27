@@ -64,6 +64,8 @@ WriteMakefile1(
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
     
     XSOPT  => ' -nolinenumbers ',
+    #for custom alloca
+    (!$is_64bit_build && $is_msvc_compiler ?  (dynamic_lib => {OTHERLDFLAGS => '-FORCE:MULTIPLE'}) : ()),
     ($ExtUtils::MakeMaker::VERSION >= 6.47 ? (MIN_PERL_VERSION => 5.000000) : ()),
     
     (
@@ -74,7 +76,7 @@ WriteMakefile1(
 		)
 	    : ( $is_msvc_compiler
                     ? ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x86_msvc$(OBJ_EXT)' )
-                    : ()
+                    : ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_i686$(OBJ_EXT)' )
               )
     )
 );
@@ -93,11 +95,17 @@ sub MY::postamble
     if ($Config{'gccversion'} =~ /4.4.3/ &&$Config{'myuname'} =~ /Win32 strawberryperl/) {
       return <<'EOM1';
 .asm$(OBJ_EXT):
-	ml64 $(ASFLAGS) -c $<
+	ml64 $(ASFLAGS) $(PERL_DEFINES) -c $<
 
 .s$(OBJ_EXT):
 	perl -pi.bak -e "s/^(.globl )?Call_x64_real/$$1_Call_x64_real/" call_asm_x64_gnu.s
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+
+#make GCC issue "push" instructions rather than "mov" to esp+offset, this is the magic
+#recipe to get GCC (4.6.3 tested) to do it
+call_i686$(OBJ_EXT): call_i686.c API.h
+	$(CCCMD) $(CCCDLFLAGS) "-I$(PERL_INC)" $(PASTHRU_DEFINE) $(DEFINE) \
+-fno-defer-pop -fno-omit-frame-pointer -mno-accumulate-outgoing-args -mno-stack-arg-probe call_i686.c
 
 EOM1
     }
@@ -109,18 +117,28 @@ ASFLAGS =  -Zi
 ':'')
 .'
 .asm$(OBJ_EXT):
-	'.($is_64bit_build ? 'ml64' : 'ml').' $(ASFLAGS) -c $<
+	'.($is_64bit_build ? 'ml64' : 'ml').' $(ASFLAGS) $(PERL_DEFINES)  -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+
+#make GCC issue "push" instructions rather than "mov" to esp+offset, this is the magic
+#recipe to get GCC (4.6.3 tested) to do it
+call_i686$(OBJ_EXT): call_i686.c API.h
+	$(CCCMD) $(CCCDLFLAGS) "-I$(PERL_INC)" $(PASTHRU_DEFINE) $(DEFINE) \
+-fno-defer-pop -fno-omit-frame-pointer -mno-accumulate-outgoing-args -mno-stack-arg-probe call_i686.c
 
 ';
 }
 
 sub MY::post_constants {
+    #if Call.c changes API.obj must be rebuilt
     return
 'benchmark :: pure_all
 	$(FULLPERLRUN) "-MExtUtils::Command::MM" "-e" "test_harness(\'$(TEST_VERBOSE)\', \'$(INST_LIB)\', \'$(INST_ARCHLIB)\')" t/benchmark.t
+
+$(OBJECT) : Call.c
+
 ';
 }
 
@@ -133,7 +151,16 @@ sub MY::cflags {
     $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
         .main::GS_flag()
         .substr($dlib, $pos+length('CCFLAGS = '), length($dlib)-$pos+length('CCFLAGS = '));
-    return $dlib;
+    my @defs = $dlib =~ /(?:-|\/)D\w+/g;
+    return $dlib.'PERL_DEFINES = '.join(' ', @defs)."\n";
+}
+
+sub MY::test {
+    package ExtUtils::MM_Win32;
+    my($self) = shift;
+    my $test_sec = $self->SUPER::test(@_);
+    substr($test_sec,index($test_sec,'TEST_VERBOSE=0'), length('TEST_VERBOSE=0') ,'TEST_VERBOSE=1');
+    return $test_sec;
 }
 
 sub GS_flag {

@@ -6,8 +6,11 @@
 */
 
 /* the code below will compile under MSVC can be used to generate boilerplate for
-   the MASM code, but the MASM version is more efficient */
-#if defined(__GNUC__)
+   the MASM code, but the MASM version is more efficient, this file is #included
+   twice, once in API.xs and once (if applicable) in call_i686.c*/
+#if defined(__GNUC__) && defined(IS_CALL_I686_C)
+
+PORTALIGN(1) const char bad_esp_msg [];
 
 /* Borland C */
 #if (defined(__BORLANDC__) && __BORLANDC__ >= 452)
@@ -36,7 +39,6 @@
                      + __GNUC_PATCHLEVEL__)
 #  if GCC_VERSION >= 40400
 #    pragma GCC push_options
-#    pragma GCC optimize ("no-omit-frame-pointer")
 #  endif
 #endif
 
@@ -45,7 +47,9 @@ extern void __cdecl _RTC_CheckEsp();
 
 
 /* params are arranged first used (left) to last used (right) */
-
+#ifdef __cplusplus
+extern "C"
+#endif
 void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after the last
                                       initialized struct, on entry, param is
                                       always pointing to uninit memory*/,
@@ -64,17 +68,26 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
     LPBYTE ppParam;
     __int64 qParam;
     } p;
-	
+	register int i = (size_t)param/(size_t)params_start;
 	/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
 	/* Start with last arg first, asm push goes down, not up, so first push must
        be the last arg. On entry, if param == params_start, it means NO params
        so if there is 1 param,  param will be pointing the struct after the
        last one, in other words, param will be a * to an uninit APIPARAM,
        therefore -- it immediatly */
+/* make gcc not trust ESP */
+#ifdef __GNUC__
+    void * orig_esp;
+    register void * unused_gcc asm ("eax");
+    unused_gcc = alloca(1);
+    asm ("movl %%esp, %0" : "=g" (orig_esp));
+#endif
 	while(param > params_start) {
         param--;
         p.qParam = param->q;
-		switch(param->t) {
+		switch(param->t+1) {
+/* the 8 byte types are implemented by "pushing the high 4 bytes", then falling
+   through to the "push low 4 bytes" that all the other types do */
 		case T_DOUBLE:
 		case T_QUAD:
 #if (defined(_MSC_VER) || defined(BORLANDC))
@@ -97,7 +110,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 	} */
 #endif /* VC VS GCC */
 #ifdef WIN32_API_DEBUG
-                if(param->t == T_QUAD)
+                if(param->t+1 == T_QUAD)
 			printf("(XS)Win32::API::Call: parameter %d (Q) is %I64d\n", i, param->q);
                 else
 			printf("(XS)Win32::API::Call: parameter %d (D) is %f\n", i, param->d);
@@ -114,16 +127,18 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
         case T_POINTERPOINTER:
         case T_CODE:
 		case T_NUMBER:
+        case T_INTEGER:
 		case T_CHAR:
+		case T_NUMCHAR:
 		case T_FLOAT:
 #else
                 default:
 #endif
 			p.pParam = param->p;
 #ifdef WIN32_API_DEBUG
-            if(param->t == T_POINTER)
+            if(param->t+1 == T_POINTER)
 			printf("(XS)Win32::API::Call: parameter %d (P) is 0x%X \"%s\"\n", i, param->l, param->p);
-            else if(param->t == T_FLOAT)
+            else if(param->t+1 == T_FLOAT)
 			printf("(XS)Win32::API::Call: parameter %d (F) is %f\n", i, param->f);
             else
             printf("(XS)Win32::API::Call: parameter %d (N) is %ld\n", i, param->l);
@@ -133,7 +148,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
                                 push dword ptr [p];
 			};
 #elif (defined(__GNUC__))
-        p.lParam = param->p;
+        p.pParam = param->p;
 	/* probably uglier than necessary, but works */
 	asm ("pushl %0":: "g" (((unsigned int*)&p)[0]));
 	/* { 
@@ -150,10 +165,11 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 
 #ifdef WIN32_API_DEBUG
         default:
-            croak("Win32::API::Call: unknown %s type", "in");
+            Perl_croak_nocontext("Win32::API::Call Call_asm unknown in type %u @%u", param->t + 1, i);
             break;
 #endif
 		}
+        i--;
 	}
 
 	/* #### NOW CALL THE FUNCTION #### */
@@ -169,6 +185,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
     case T_NUMBER:
     case T_SHORT:
     case T_CHAR:
+    case T_NUMCHAR:
     case T_INTEGER:
     case T_VOID:
     case T_POINTER:
@@ -177,6 +194,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             case T_NUMBER:
             case T_SHORT:
             case T_CHAR:
+            case T_NUMCHAR:
             printf("(XS)Win32::API::Call: Calling ApiFunctionNumber()\n");
             break;
             case T_INTEGER:
@@ -204,9 +222,10 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             printf("(XS)Win32::API::Call: ApiFunctionInteger (short) returned %hd\n", retval->s);
             break;
             case T_CHAR:
+            case T_NUMCHAR:
             printf("(XS)Win32::API::Call: ApiFunctionInteger (char) returned %d\n", retval->c);
             break;
-            case T_NUMBER:
+            case T_NUMBER: /* ptr always 32 */
             case T_INTEGER:
             printf("(XS)Win32::API::Call: ApiFunctionInteger returned %d\n", (int)retval->l);
             break;
@@ -218,9 +237,6 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             break;
             case T_QUAD:
             printf("(XS)Win32::API::Call: ApiFunctionQuad returned %I64d\n", retval->q);
-            break;
-            case T_NUMBER:
-            printf("(XS)Win32::API::Call: ApiFunctionNumer returned %I64d\n", retval->q);
             break;
         }
 #endif  //WIN32_API_DEBUG
@@ -284,9 +300,17 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
         "addl %%eax, %%esp\n" 
 
         : /* no output */ 
-        : "m" (stack_unwind) /* input */ 
+        : "g" (stack_unwind) /* input */
         : "%eax" /* modified registers */ 
     );
+    {
+        register void * raw_esp asm("esp");
+        void * new_esp = raw_esp;
+        if(raw_esp != orig_esp) {
+            if(IsDebuggerPresent()) DebugBreak();
+            else Perl_croak_nocontext(bad_esp_msg, orig_esp, raw_esp);
+        }
+    }
 #endif
 }
 }
@@ -297,11 +321,20 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 #  endif
 #endif
 
-#else /* using MASM version */
-extern void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after the last
+#else /* Call_asm is in a different compliand */
+
+#ifdef __cplusplus
+extern "C"
+#else
+extern
+#endif
+void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after the last
                                       initialized struct, on entry, param is
                                       always pointing to uninit memory*/,
               const APIPARAM * const params_start,
               const APICONTROL * const control,
               APIPARAM_U * const retval);
-#endif /* #if defined(__GNUC__) */
+/*
+void __fastcall Call_asm(const APIPARAM * param, const APIPARAM * const params_start, const APICONTROL * const control,APIPARAM_U * const retval);
+ */
+#endif /* defined(__GNUC__) && IS_CALL_I686_C */
