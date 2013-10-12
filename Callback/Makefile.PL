@@ -19,17 +19,21 @@ sub GS_flag {
     }
 }
 
-sub MY::cflags {
-    package ExtUtils::MM_Win32;
+package MY;
+
+sub cflags {
     my($self) = shift;
     my $dlib = $self->SUPER::cflags(@_);
     my $pos = index($dlib,'CCFLAGS = ',0);
     die "bad CCFLAGS match" if $pos == -1;
-    $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
+    my $len = $pos+length('CCFLAGS = ');
+    $dlib = substr($dlib, 0, $len)
         .main::GS_flag()
-        .substr($dlib, $pos+length('CCFLAGS = '), length($dlib)-$pos+length('CCFLAGS = '));
+        .substr($dlib, $len, length($dlib)-$len);
     return $dlib;
 }
+
+package main;
 
     WriteMakefile(
         'NAME'	=> 'Win32::API::Callback',

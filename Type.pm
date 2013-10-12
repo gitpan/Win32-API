@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
 
-$VERSION = '0.68';
+$VERSION = '0.69';
 
 use Carp;
 BEGIN{
@@ -379,10 +379,12 @@ otherwise.
 
 =head2 SUPPORTED TYPES
 
-This module should recognize all the types defined in the
-Win32 Platform SDK header files. 
+This module recognizes many commonly used types defined in the Win32 Platform
+SDK header files, but not all. Types less than 13 years old are very unlikely
+to be the in built type database.
+
 Please see the source for this module, in the C<__DATA__> section,
-for the full list.
+for the full list of builtin supported types.
 
 
 =head2 NOTES ON SELECT TYPES
@@ -410,7 +412,7 @@ LPHANDLE.
 =item signed char
 
 These 2 types by name force numeric handling. C<97> not C<"a">. C<UCHAR> is
-not a C<unsigned char> for numeric handling purposess.
+not a C<unsigned char> for numeric handling purposes.
 
 =back
 

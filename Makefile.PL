@@ -1,8 +1,8 @@
 # $Id$
 
-# If we are on platforms other than Win32 or Cygwin,
-# exit now. This should play nice for CPAN testers
-my $running_on_windows = $^O eq 'MSWin32' || $^O eq 'cygwin';
+# If we are on platforms other than Windows,
+# exit now. This should play nice for CPAN testers.
+my $running_on_windows = $^O eq 'MSWin32' || $^O eq 'cygwin' || $^O eq 'msys';
 die qq(OS unsupported\n)
     unless $running_on_windows
     or $ENV{WIN32_API_BUILD}     # So I can build it on Linux too
@@ -15,6 +15,9 @@ require './Test.pm';
 my $is_64bit_build = ($Config{ptrsize} == 8);
 my $is_msvc_compiler = ($Config{cc} =~ /cl/);
 
+#maybe this CC will banned in the future due to SEGV in DllMain
+#die "Mingw 3.4.5 will generate unloadble DLLs, upgrade your GCC"
+#     if index($Config{gccversion}, '3.4.5 (mingw-vista special r3)') != -1);
 
 use ExtUtils::MakeMaker;
 WriteMakefile1(
@@ -131,7 +134,9 @@ call_i686$(OBJ_EXT): call_i686.c API.h
 ';
 }
 
-sub MY::post_constants {
+package MY; #subs below use SUPER::, subs above use main:: vars
+
+sub post_constants {
     #if Call.c changes API.obj must be rebuilt
     return
 'benchmark :: pure_all
@@ -142,21 +147,20 @@ $(OBJECT) : Call.c
 ';
 }
 
-sub MY::cflags {
-    package ExtUtils::MM_Win32;
+sub cflags {
     my($self) = shift;
     my $dlib = $self->SUPER::cflags(@_);
     my $pos = index($dlib,'CCFLAGS = ',0);
     die "bad CCFLAGS match" if $pos == -1;
-    $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
+    my $len = $pos+length('CCFLAGS = ');
+    $dlib = substr($dlib, 0, $len)
         .main::GS_flag()
-        .substr($dlib, $pos+length('CCFLAGS = '), length($dlib)-$pos+length('CCFLAGS = '));
+        .substr($dlib, $len, length($dlib)-$len);
     my @defs = $dlib =~ /(?:-|\/)D\w+/g;
     return $dlib.'PERL_DEFINES = '.join(' ', @defs)."\n";
 }
 
-sub MY::test {
-    package ExtUtils::MM_Win32;
+sub test {
     my($self) = shift;
     my $test_sec = $self->SUPER::test(@_);
     substr($test_sec,index($test_sec,'TEST_VERBOSE=0'), length('TEST_VERBOSE=0') ,'TEST_VERBOSE=1');
@@ -164,17 +168,22 @@ sub MY::test {
 }
 
 #b/c of this sub, distdir only runs on Cygwin, perm changes are for Kwalitee
-sub MY::distdir {
-    package ExtUtils::MM_Win32;
+sub distdir {
     my($self) = shift;
     my $distdir_sec = $self->SUPER::distdir(@_);
+    #in newer perls we are patching create_distdir, in olders, distdir
+    #see MM patch "6.25 alphas caused a Makefile to be added to the dist. Fixed. "
+    my $repstartpos = index($distdir_sec,"\'\$(DIST_CP)\');\"");
+    die "distdir cant match" if $repstartpos == -1;
     substr($distdir_sec
-           ,index($distdir_sec,"\"\n\ndistdir : ")
-           ,length("\"\n\ndistdir : ")
-           ,"\"\\\n\t&& cd \$(DISTVNAME) && chmod -v -x-x-x Makefile.PL && chmod -v -x-x-x ./Callback/Makefile.PL\n\ndistdir : "
+           ,$repstartpos
+           ,length("\'\$(DIST_CP)\');\"")
+           ,"\'\$(DIST_CP)\');\" \\\n\t&& cd \$(DISTVNAME) && chmod -v -x-x-x Makefile.PL && chmod -v -x-x-x ./Callback/Makefile.PL"
            );
     return $distdir_sec;
 }
+
+package main;
 
 sub GS_flag {
     if($is_msvc_compiler
