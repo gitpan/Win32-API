@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Win32-API
-version:            0.76_04
+version:            0.76_05
 abstract:           Perl Win32 API Import Facility
 author:
     - Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>, Daniel Dragan <bulkdd@cpan.org>
