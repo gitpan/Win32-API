@@ -78,3 +78,4 @@ TODO
 Type.pm
 TYPEMAP
 typemap56
+META.json                                Module JSON meta-data (added by MakeMaker)
