@@ -52,11 +52,11 @@
          }
       }
    },
-   "release_status" : "testing",
+   "release_status" : "stable",
    "resources" : {
       "repository" : {
          "url" : "https://github.com/cosimo/perl5-win32-api"
       }
    },
-   "version" : "0.78_02"
+   "version" : "0.79"
 }
